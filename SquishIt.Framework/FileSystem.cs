@@ -12,7 +12,7 @@ namespace SquishIt.Framework
             get { return Environment.OSVersion.Platform == PlatformID.Unix || Environment.OSVersion.Platform == PlatformID.MacOSX; }
         }
 
-        public static string ResolveAppRelativePathToFileSystem(string file)
+        public static string ResolveAppRelativePathToFileSystem(string file, string basePath = "")
         {
             // Remove query string
             if (file.IndexOf('?') != -1)
@@ -27,10 +27,11 @@ namespace SquishIt.Framework
                     file = file.Replace("/", "\\").TrimStart('~').TrimStart('\\');
                     return @"C:\" + file.Replace("/", "\\");
                 }
-                file = file.TrimStart('~', '/');
-                return Path.Combine(Environment.CurrentDirectory, file);
             }
-            return HttpContext.Current.Server.MapPath(file);
+
+            string path = Path.Combine(basePath, file);
+            string mappedPath = HttpContext.Current.Server.MapPath(path);
+            return mappedPath;
         }
     }
 }

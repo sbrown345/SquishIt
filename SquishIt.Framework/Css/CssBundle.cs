@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Text;
 using System.Text.RegularExpressions;
+using System.Web;
 using dotless.Core;
 using SquishIt.Framework.Base;
 using SquishIt.Framework.Minifiers;
@@ -16,7 +17,8 @@ namespace SquishIt.Framework.Css
     public class CSSBundle : BundleBase<CSSBundle>
     {
         private const string MEDIA_ALL = "all";
-        private static Regex IMPORT_PATTERN = new Regex(@"@import +url\(([""']){0,1}(.*?)\1{0,1}\);", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+        private static Regex IMPORT_PATTERN = new Regex(@"@import +(url\()?([""']){0,1}(.*?){0,1}([""']){0,1}\)?;", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+        private static Regex COMMENTS_PATTERN = new Regex(@"/\*.+?\*/", RegexOptions.Compiled | RegexOptions.IgnoreCase);
         private const string CSS_TEMPLATE = "<link rel=\"stylesheet\" type=\"text/css\" {0}href=\"{1}\" />";
         private const string CACHE_PREFIX = "css";
 
@@ -72,16 +74,33 @@ namespace SquishIt.Framework.Css
             }
         }
 
-    	private string ProcessImport(string css)
+        private string ProcessImport(string css, string currentPath)
         {
-            return IMPORT_PATTERN.Replace(css, new MatchEvaluator(ApplyFileContentsToMatchedImport));
+            var cssWithoutComments = COMMENTS_PATTERN.Replace(css, "");
+            cssWithoutComments = IMPORT_PATTERN.Replace(cssWithoutComments, match => ApplyFileContentsToMatchedImport(match, currentPath));
+
+            return cssWithoutComments;
         }
 
-    	private string ApplyFileContentsToMatchedImport(Match match)
+        private string ApplyFileContentsToMatchedImport(Match match, string currentPath)
         {
-            var file = FileSystem.ResolveAppRelativePathToFileSystem(match.Groups[2].Value);
+            string relativePath = match.Groups[3].Value;
+            string fileName = new FileInfo(relativePath).Name;
+
+            string combined = Path.Combine(currentPath, relativePath);
+            if (combined.StartsWith("~") || combined.StartsWith("/"))
+                combined = HttpContext.Current.Server.MapPath(combined);
+
+            string path = new FileInfo(combined).DirectoryName
+                .Replace(HttpContext.Current.Request.PhysicalApplicationPath, "~/")
+                .Replace("\\", "/");
+
+            var file = FileSystem.ResolveAppRelativePathToFileSystem(fileName, path);
             DependentFiles.Add(file);
-            return ReadFile(file);
+
+            string css = ReadFile(file);
+            css = ProcessImport(css, path);
+            return css;
         }
 
     	public CSSBundle ProcessImports()
@@ -113,7 +132,8 @@ namespace SquishIt.Framework.Css
 
                 if (ShouldImport)
                 {
-                    css = ProcessImport(css);
+                    var fileInfo = new FileInfo(file);
+                    css = ProcessImport(css, fileInfo.DirectoryName);
                 }
 
                 ICssAssetsFileHasher fileHasher = null;
